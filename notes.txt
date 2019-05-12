@@ -1,0 +1,18 @@
+installed packages
+------------------
+keras
+tensorflow
+matplotlib
+graphviz
+pydot
+opencv-python-contrib
+h5py
+
+updated packages
+----------------
+numpy (pip3 install --upgrade numpy)
+
+dataset
+-------
+ocr : http://www.ee.surrey.ac.uk/CVSSP/demos/chars74k/EnglishFnt.tgz
+    create directory 'res/ocr' and unzip in it
