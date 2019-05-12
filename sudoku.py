@@ -26,9 +26,17 @@ def build_ocr_model():
     model.add(Dense(units=25, activation='relu', input_dim=input_dim))
     model.add(Dense(units=num_classes, activation='softmax'))
     model.compile(loss='categorical_crossentropy', 
-                  optimizer='sgd',
+                  optimizer='adam',
                   metrics=['accuracy'])
     return model
+
+def train_ocr_model():
+    X_train, y_train, X_val, y_val = get_char74k_dataset()
+    model = build_ocr_model()
+    model.fit(X_train, y_train, validation_data=(X_val, y_val), epochs=100, batch_size=200, verbose=1)
+    model_name = '25x9'
+    model.save(f'{model_name}.h5')
+
 
 def show_processed_image(img_array):
     img_array *= 255
@@ -66,9 +74,7 @@ def get_char74k_dataset(dataset_dir='res/ocr'):
     
 
 if __name__ == '__main__':
-    X_train, y_train, X_val, y_val = get_char74k_dataset()
-    model = build_ocr_model()
-    model.fit(X_train, y_train, validation_data=(X_val, y_val), epochs=100, batch_size=200, verbose=1)
+    train_ocr_model()
 
 
 

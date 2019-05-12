@@ -16,3 +16,6 @@ dataset
 -------
 ocr : http://www.ee.surrey.ac.uk/CVSSP/demos/chars74k/EnglishFnt.tgz
     create directory 'res/ocr' and unzip in it
+
+Use ImageDataGenerator to augment the dataset for better generalization :
+    https://towardsdatascience.com/image-detection-from-scratch-in-keras-f314872006c9
