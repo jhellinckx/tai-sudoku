@@ -6,17 +6,28 @@ import cv2
 
 import utils
 
+RES_DIR = 'res'
+GRIDS_DIR = os.path.join(RES_DIR, 'grids')
+
 RGB_RED = (255, 0, 0)
 RGB_GREEN = (0, 255, 0)
 RGB_BLUE = (0, 0, 255)
 
 CORNER_RADIUS = 18
 CORNER_COLOR = RGB_GREEN
+CENTER_RADIUS = 8
+CENTER_COLOR = RGB_GREEN
 CONTOUR_THICKNESS = 6
 CONTOUR_COLOR = RGB_RED
 
-RES_DIR = 'res'
-GRIDS_DIR = os.path.join(RES_DIR, 'grids')
+SUDOKU_DIM = 9
+
+BLUR_KERNEL_SIZE = (21, 21)
+ADAPT_THRESHOLD_WINDOW_SIZE = 13
+ADAPT_THRESHOLD_SUB_MEAN = 2
+
+CELL_BORDER_CROP_RATIO = 0.08
+DIGIT_CC_AREA_MIN_RATIO = 0.1
 
 def get_img_path(img_filename):
     return os.path.join(GRIDS_DIR, img_filename)
@@ -33,12 +44,13 @@ def get_sudoku(img_path):
     corners, img_contours, img_grid_contour, img_corners = get_corners(img_dilate)
     #utils.plot_images([img_dilate, img_contours], ['Preprocessed', 'Contours'], cols=1)
     #utils.plot_images([img_grid_contour, img_corners], ['Largest contour', 'Corners'], cols=1)
-    img_raw_grid, img_warp_grid, m = get_grid(img_dilate, *corners)
-    utils.plot_images([img_raw_grid, img_warp_grid], ['Raw corners rectangle', 'With perspective transform'], cols=1)
+    img_raw_grid, img_warp_grid, m = get_grid_roi(img_threshold, *corners)
+    #utils.plot_images([img_raw_grid, img_warp_grid], ['Raw corners rectangle', 'With perspective transform'], cols=1)
+    get_digits_rois(img_warp_grid)
     
 def pre_process(image):
     # Blurring/smoothing to reduce noise
-    img_blurred = cv2.GaussianBlur(image, (21, 21), 0)
+    img_blurred = cv2.GaussianBlur(image, BLUR_KERNEL_SIZE, 0)
 
     # Gray scale image, each pixel in the range 0-255
     # Too noisy to perform advanced operations on it
@@ -50,7 +62,9 @@ def pre_process(image):
     # leads to problems when the lightning is uneven in the image or when some shadows are present
     # http://aishack.in/tutorials/thresholding/
     # http://aishack.in/tutorials/sudoku-grabber-opencv-detection/
-    img_threshold = cv2.adaptiveThreshold(img_blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 15, 2)
+    img_threshold = cv2.adaptiveThreshold(img_blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                                          cv2.THRESH_BINARY_INV, ADAPT_THRESHOLD_WINDOW_SIZE, 
+                                          ADAPT_THRESHOLD_SUB_MEAN)
 
     # Use dilation to increase the thickness of the "features" e.g. grid lines
     kernel = np.array([[0., 1., 0.], [1., 1., 1.], [0., 1., 0.]]).astype('uint8')
@@ -94,13 +108,15 @@ def get_corners(image):
     return corners, img_contours, img_grid_contour, img_corners
 
     
-def get_grid(image, top_left, top_right, bottom_right, bottom_left):
+def get_grid_roi(image, top_left, top_right, bottom_right, bottom_left):
     # We still need to take care of perspective and rotation
-    # Given that we already know the 4 corners of the grid, we can apply perspective tranformation
-    # which will also crop the grid for us
+    # Since we know the 4 corners of the grid, we can easily apply perspective transformation
+    # which will also crop the grid for us and handle rotations
+    
     # Let us first generate a grid by cropping the image with the raw corners, without any changes
     img_raw_grid = image[top_left[1]:bottom_right[1], top_left[0]:bottom_right[0]]
     
+    # Let's now start with the perspective transformation
     # Get the area of the source grid, as defined by the extracted corners
     src_area = np.array([top_left, top_right, bottom_right, bottom_left]).astype('float32')
 
@@ -121,6 +137,50 @@ def get_grid(image, top_left, top_right, bottom_right, bottom_left):
     img_warp_grid = cv2.warpPerspective(image, transform_matrix, (int(edge_max), int(edge_max)))
     return img_raw_grid, img_warp_grid, transform_matrix
 
+def get_digits_rois(image_grid):
+    # Get the length of the grid square
+    side_length = image_grid.shape[0]
+    # Sudoku grids are 9x9 matrices, so start off by finding the center of each cell naively 
+    # by partitioning the grid into 81 cells of the same size
+    cell_length = side_length / SUDOKU_DIM
+    pad = int(cell_length / 2)
+    centers = [(int(cell_length * j + pad), int(cell_length * i + pad)) for i in range(SUDOKU_DIM) for j in range(SUDOKU_DIM)]
+
+    # Generate an image that shows the naive 81 centers of the cells
+    img_naive_centers = cv2.cvtColor(image_grid.copy(), cv2.COLOR_GRAY2RGB)
+    for center in centers:
+        img_naive_centers = cv2.circle(img_naive_centers, center, CENTER_RADIUS, CENTER_COLOR, cv2.FILLED)
+    #show_image(img_naive_centers)
+    
+    # TODO - find centers by applying the method described in 
+    # https://pdfs.semanticscholar.org/6761/32d52aeeb55d1b58ad1191443fdaf0217f33.pdf
+    
+    # Now that we have the approximate center of each cell, crop the grid for each cell w.r.t. its center 
+    # Also crop the cells to get rid of the noisy borders
+    cell_pad = int(pad - cell_length * CELL_BORDER_CROP_RATIO)
+    cells = [image_grid[center_y - cell_pad:center_y + cell_pad, center_x - cell_pad:center_x + cell_pad] for center_x, center_y in centers]
+    #utils.plot_images(cells, None, cols=9, figsize=(4, 4))
+
+    # We still need to determine wether or not each cell contains a digit
+    # As for the grid contour detection, find the biggest connected component, assume it is the digit in the cell
+    digits = []
+    for i, cell in enumerate(cells):
+        cell_area = cell.shape[0]**2
+        contours, h = cv2.findContours(cell, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+        contours = sorted(contours, key=cv2.contourArea, reverse=True)
+        if not contours:
+            continue
+        digit_contour = contours[0]
+        # If the area of the CC is not more than a fixed proportion of the cell, assume the cell is empty
+        if cell_area * DIGIT_CC_AREA_MIN_RATIO > cv2.contourArea(digit_contour):
+            digits.append(None)
+            continue
+        # Create an image that is centered around the digit
+        x, y, w, h = cv2.boundingRect(digit_contour)
+        cell = cv2.cvtColor(cell, cv2.COLOR_GRAY2RGB)
+        cells[i] = cv2.rectangle(cell,(x,y),(x+w,y+h),(0,255,0),2)
+
+    utils.plot_images(cells, None, cols=9, figsize=(4, 4))
 
 if __name__ == '__main__':
     sudoku_easy = 'sudoku7.jpg'
