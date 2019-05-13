@@ -15,6 +15,8 @@ from keras.layers import Dense
 from keras.utils import plot_model
 from keras.utils import np_utils
 
+import utils
+
 random.seed(1)
 
 img_rows = 28
@@ -47,19 +49,15 @@ def show_random_predictions(num_predictions=20):
     model = load_model(model_filename)
     X_pred = X_val[:num_predictions]
     preds = model.predict(X_pred, batch_size=num_predictions)
-    plt.figure(figsize=(10, 10))
-    columns = 5
-    rows = ceil(num_predictions / columns)
+    X_pred *= 255 # Rescale to 0-255 range
+    X_pred = X_pred.reshape(X_pred.shape[0], img_rows, img_cols)
+    titles = []
     for i in range(num_predictions):
         pred = preds[i]
-        img = X_pred[i]
         label = np.argmax(pred) + 1
         confidence = f'{round(pred[label - 1] * 100, 2)}'
-        img *= 255 # Rescale to 0-255 range
-        plt.subplot(rows, columns, i + 1)
-        plt.title(f'This is a {label} ({confidence}%)', fontsize=10)
-        plt.imshow(img.reshape(img_rows, img_cols), cmap=plt.cm.gray)
-    plt.show()
+        titles.append(f'This is a {label} ({confidence}%)')
+    utils.plot_images(X_pred, titles, cols=5, figsize=(10, 10), fontsize=10)
 
 def show_processed_image(img_array):
     img_array *= 255
