@@ -12,13 +12,13 @@ def grid_dataset_accuracy():
     # Percentage of digits cells effectively recognized as digits
     y_digits_num = 0
     y_digits_pred = 0
-    
+    # Percentage of empty cells effectively recognized as empty cells
     y_empty_num = 0
     y_empty_pred = 0
-
+    # Percentage of correctly recognized digits by the NN 
+    # when the cell was correctly recognized as a digit cell
     y_digits_ocr_num = 0
     y_digits_ocr_pred = 0
-
     ocr_errors = []
     ocr_errors_y = []
     ocr_errors_y_pred = []
@@ -26,7 +26,7 @@ def grid_dataset_accuracy():
     for i, sudoku_name in enumerate(sudoku_names):
         img_path, y_path = get_sudoku(sudoku_name)
         y = np.array(get_solution(y_path))
-        y_pred, digit_imgs = get_sudoku_grid(img_path)
+        y_pred, digit_imgs = get_sudoku_grid(img_path, ocr.conv_model)
         for j, (y_digit, y_digit_pred) in enumerate(zip(y, y_pred)):
             if y_digit == 0:
                 y_empty_num += 1
@@ -44,7 +44,8 @@ def grid_dataset_accuracy():
                         ocr_errors_y.append(y_digit)
                         ocr_errors_y_pred.append(y_digit_pred)
                         ocr_errors.append(digit_imgs[j])
-        print(f'Done {i + 1}/{len(sudoku_names)}')
+        print(f'Done {i + 1}/{len(sudoku_names)}', end='\r')
+    print()
     ocr_errors_titles = []
     for y, y_pred, sudoku in zip(ocr_errors_y, ocr_errors_y_pred, ocr_errors_sudoku):
         ocr_errors_titles.append(f'{sudoku}: {y} -> {y_pred}')
@@ -56,10 +57,9 @@ def grid_dataset_accuracy():
     print(f'Digit cell accuracy : {digit_cell_accuracy}')
     print(f'OCR accuracy : {ocr_accuracy}')
 
-
-def get_sudoku_grid(img_path):
-    digit_imgs = vision.get_digits(img_path)
-    return np.array(ocr.predict_digits(digit_imgs)), digit_imgs
+def get_sudoku_grid(img_path, model_filename):
+    digit_imgs = vision.get_sudoku_digits(img_path)
+    return np.array(ocr.predict_digits(digit_imgs, model_filename)), digit_imgs
 
 if __name__ == '__main__':
     grid_dataset_accuracy()

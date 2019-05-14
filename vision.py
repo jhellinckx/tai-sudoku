@@ -35,7 +35,7 @@ def show_image(img):
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
-def get_digits(img_path):
+def get_sudoku_digits(img_path):
     img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
     img_blurred, img_threshold, img_dilate = pre_process(img)
     #plot_images([img, img_blurred, img_threshold, img_dilate], ['Original', 'Blur', 'Threshold', 'Dilate'])
@@ -202,7 +202,7 @@ def get_digits_rois(image_grid):
     return digits, cells, img_centers
 
 if __name__ == '__main__':
-    get_digits(sudoku_hard)
+    get_sudoku_digits(sudoku_hard)
 
 
 
