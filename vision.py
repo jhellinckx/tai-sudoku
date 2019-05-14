@@ -4,10 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import cv2
 
-import utils
-
-RES_DIR = 'res'
-GRIDS_DIR = os.path.join(RES_DIR, 'grids')
+from utils import *
 
 RGB_RED = (255, 0, 0)
 RGB_GREEN = (0, 255, 0)
@@ -33,24 +30,23 @@ DIGIT_CC_AREA_MIN_RATIO = 0.06
 
 DIGIT_CENTER_PAD_RATIO = 0.2
 
-def get_img_path(img_filename):
-    return os.path.join(GRIDS_DIR, img_filename)
-
 def show_image(img):
     cv2.imshow('image', img)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
-def get_sudoku(img_path):
+def get_digits(img_path):
     img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
     img_blurred, img_threshold, img_dilate = pre_process(img)
-    #utils.plot_images([img, img_blurred, img_threshold, img_dilate], ['Original', 'Blur', 'Threshold', 'Dilate'])
+    #plot_images([img, img_blurred, img_threshold, img_dilate], ['Original', 'Blur', 'Threshold', 'Dilate'])
     corners, img_contours, img_grid_contour, img_corners = get_corners(img_dilate)
-    #utils.plot_images([img_dilate, img_contours], ['Preprocessed', 'Contours'], cols=1)
-    #utils.plot_images([img_grid_contour, img_corners], ['Largest contour', 'Corners'], cols=1)
+    #plot_images([img_dilate, img_contours], ['Preprocessed', 'Contours'], cols=1)
+    #plot_images([img_grid_contour, img_corners], ['Largest contour', 'Corners'], cols=1)
     img_raw_grid, img_warp_grid, m = get_grid_roi(img_threshold, *corners)
-    #utils.plot_images([img_raw_grid, img_warp_grid], ['Raw corners rectangle', 'With perspective transform'], cols=1)
-    get_digits_rois(img_warp_grid)
+    #plot_images([img_threshold, img_warp_grid], ['Original', 'With perspective transform'], cols=1)
+    digits, cells, img_centers = get_digits_rois(img_warp_grid)
+    #plot_images(cells, cols=9)
+    return digits
     
 def pre_process(image):
     # Blurring/smoothing to reduce noise
@@ -77,7 +73,7 @@ def pre_process(image):
 
 def get_corners(image):
     # Find all the contours in the image (i.e. connected components)
-    contours, hierarchy = cv2.findContours(image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv2.findContours(image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
     # Sort by area, descending
     contours = sorted(contours, key=cv2.contourArea, reverse=True)
@@ -160,7 +156,7 @@ def get_digits_rois(image_grid):
     # Also crop the cells to get rid of the noisy borders
     cell_pad = int(pad - cell_length * CELL_BORDER_CROP_RATIO)
     cells = [image_grid[center_y - cell_pad:center_y + cell_pad, center_x - cell_pad:center_x + cell_pad] for center_x, center_y in centers]
-    #utils.plot_images(cells, None, cols=9, figsize=(4, 4))
+    #plot_images(cells, None, cols=9, figsize=(4, 4))
 
     # We still need to determine wether or not each cell contains a digit
     # As for the grid contour detection, find the biggest connected component, assume it is the digit in the cell
@@ -201,14 +197,19 @@ def get_digits_rois(image_grid):
             vertical_pad = np.zeros((int((cell.shape[1] - h) / 2), cell.shape[1]))
             cell = np.concatenate((vertical_pad, cell, vertical_pad), axis=0)
         digits[i] = cell
-    utils.plot_images([d for d in digits if d is not None], cols=3, figsize=(6, 6))
-    #utils.plot_images(cells, cols=9, figsize=(4, 4))
+    #plot_images([d for d in digits if d is not None], cols=3, figsize=(6, 6))
+    #plot_images(cells, cols=9, figsize=(4, 4))
+    return digits, cells, img_centers
 
 if __name__ == '__main__':
-    sudoku_color = 'sudoku21.jpg'
-    sudoku_easy = 'sudoku7.jpg'
-    sudoku_easy2 = 'sudoku22.jpg'
-    sudoku_easy3 = 'sudoku23.jpg'
-    sudoku_right = 'sudoku2.jpg'
-    sudoku_left = 'sudoku4.jpg'
-    get_sudoku(get_img_path(sudoku_easy))
+    get_digits(sudoku_hard)
+
+
+
+
+
+
+
+
+
+

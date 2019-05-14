@@ -17,11 +17,10 @@ from keras.utils import np_utils
 
 import utils
 
-random.seed(1)
-
 img_rows = 28
 img_cols = 28
 train_interpolation = cv2.INTER_AREA
+predict_interpolation = cv2.INTER_CUBIC
 img_mode = cv2.IMREAD_GRAYSCALE
 input_dim = img_rows * img_cols
 num_classes = 9
@@ -43,6 +42,24 @@ def train_ocr_model():
     model = build_ocr_model()
     model.fit(X_train, y_train, validation_data=(X_val, y_val), epochs=50, batch_size=200, verbose=1)
     model.save(model_filename)
+
+def predict_digits(images):
+    preds = []
+    model = load_model(model_filename)
+    for image in images:
+        if image is None:
+            preds.append(0)
+            continue
+        preds.append(predict_digit(image, model))
+    return preds
+
+
+def predict_digit(image, model):
+    image = cv2.resize(image, (img_rows, img_cols), interpolation=predict_interpolation)
+    image = image.reshape(img_rows * img_cols)
+    pred = model.predict(np.array([image]), batch_size=1)[0]
+    return np.argmax(pred) + 1
+    
 
 def show_random_predictions(num_predictions=20):
     X_train, y_train, X_val, y_val = get_char74k_dataset()
@@ -94,6 +111,7 @@ def get_char74k_dataset(dataset_dir='res/ocr'):
     return (X_train, y_train, X_val, y_val)
 
 if __name__ == '__main__':
+    random.seed(1)
     show_random_predictions()
     
 
