@@ -19,15 +19,19 @@ CENTER_RADIUS = 8
 CENTER_COLOR = RGB_GREEN
 CONTOUR_THICKNESS = 6
 CONTOUR_COLOR = RGB_RED
+DIGIT_BB_COLOR = RGB_GREEN
+DIGIT_BB_THICKNESS = 2
 
 SUDOKU_DIM = 9
 
-BLUR_KERNEL_SIZE = (21, 21)
-ADAPT_THRESHOLD_WINDOW_SIZE = 13
-ADAPT_THRESHOLD_SUB_MEAN = 2
+BLUR_KERNEL_SIZE = (9, 9)
+ADAPTIVE_THRESH_WINDOW_SIZE = 11
+ADAPTIVE_THRESH_SUB_MEAN = 2
 
-CELL_BORDER_CROP_RATIO = 0.08
-DIGIT_CC_AREA_MIN_RATIO = 0.1
+CELL_BORDER_CROP_RATIO = 0.1
+DIGIT_CC_AREA_MIN_RATIO = 0.06
+
+DIGIT_CENTER_PAD_RATIO = 0.2
 
 def get_img_path(img_filename):
     return os.path.join(GRIDS_DIR, img_filename)
@@ -63,8 +67,8 @@ def pre_process(image):
     # http://aishack.in/tutorials/thresholding/
     # http://aishack.in/tutorials/sudoku-grabber-opencv-detection/
     img_threshold = cv2.adaptiveThreshold(img_blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                                          cv2.THRESH_BINARY_INV, ADAPT_THRESHOLD_WINDOW_SIZE, 
-                                          ADAPT_THRESHOLD_SUB_MEAN)
+                                          cv2.THRESH_BINARY_INV, ADAPTIVE_THRESH_WINDOW_SIZE, 
+                                          ADAPTIVE_THRESH_SUB_MEAN)
 
     # Use dilation to increase the thickness of the "features" e.g. grid lines
     kernel = np.array([[0., 1., 0.], [1., 1., 1.], [0., 1., 0.]]).astype('uint8')
@@ -140,20 +144,17 @@ def get_grid_roi(image, top_left, top_right, bottom_right, bottom_left):
 def get_digits_rois(image_grid):
     # Get the length of the grid square
     side_length = image_grid.shape[0]
-    # Sudoku grids are 9x9 matrices, so start off by finding the center of each cell naively 
+    # Sudoku grids are 9x9 matrices, so start off by finding the center of each cell
     # by partitioning the grid into 81 cells of the same size
     cell_length = side_length / SUDOKU_DIM
     pad = int(cell_length / 2)
     centers = [(int(cell_length * j + pad), int(cell_length * i + pad)) for i in range(SUDOKU_DIM) for j in range(SUDOKU_DIM)]
 
-    # Generate an image that shows the naive 81 centers of the cells
-    img_naive_centers = cv2.cvtColor(image_grid.copy(), cv2.COLOR_GRAY2RGB)
+    # Generate an image that shows the 81 centers of the cells
+    img_centers = cv2.cvtColor(image_grid.copy(), cv2.COLOR_GRAY2RGB)
     for center in centers:
-        img_naive_centers = cv2.circle(img_naive_centers, center, CENTER_RADIUS, CENTER_COLOR, cv2.FILLED)
-    #show_image(img_naive_centers)
-    
-    # TODO - find centers by applying the method described in 
-    # https://pdfs.semanticscholar.org/6761/32d52aeeb55d1b58ad1191443fdaf0217f33.pdf
+        img_centers = cv2.circle(img_centers, center, CENTER_RADIUS, CENTER_COLOR, cv2.FILLED)
+    #show_image(img_centers)
     
     # Now that we have the approximate center of each cell, crop the grid for each cell w.r.t. its center 
     # Also crop the cells to get rid of the noisy borders
@@ -163,7 +164,8 @@ def get_digits_rois(image_grid):
 
     # We still need to determine wether or not each cell contains a digit
     # As for the grid contour detection, find the biggest connected component, assume it is the digit in the cell
-    digits = []
+    digits = [None for i in range(len(cells))]
+    bb_cells = cells
     for i, cell in enumerate(cells):
         cell_area = cell.shape[0]**2
         contours, h = cv2.findContours(cell, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
@@ -171,19 +173,42 @@ def get_digits_rois(image_grid):
         if not contours:
             continue
         digit_contour = contours[0]
-        # If the area of the CC is not more than a fixed proportion of the cell, assume the cell is empty
+        # If the area of the CC is not greater than a fixed proportion of the cell, assume the cell is empty
         if cell_area * DIGIT_CC_AREA_MIN_RATIO > cv2.contourArea(digit_contour):
-            digits.append(None)
             continue
         # Create an image that is centered around the digit
+        # First find the bounding box of the contour
         x, y, w, h = cv2.boundingRect(digit_contour)
-        cell = cv2.cvtColor(cell, cv2.COLOR_GRAY2RGB)
-        cells[i] = cv2.rectangle(cell,(x,y),(x+w,y+h),(0,255,0),2)
-
-    utils.plot_images(cells, None, cols=9, figsize=(4, 4))
+        # Create an image of the cell with the digit bounding box
+        bb_cell = cv2.cvtColor(cell.copy(), cv2.COLOR_GRAY2RGB)
+        bb_cells[i] = cv2.rectangle(bb_cell, (x, y), (x + w, y + h), DIGIT_BB_COLOR, DIGIT_BB_THICKNESS)
+        # Crop the cell with the bounding box
+        cell = cell[y:y + h, x:x + w]
+        # Add some area around the digit such that it creates a well-centered image
+        if h > w:
+            # Wrap the image around some zeros vectors to create a vertically centered image
+            pad_length = int(h * DIGIT_CENTER_PAD_RATIO)
+            vertical_pad = np.zeros((pad_length, w))
+            cell = np.concatenate((vertical_pad, cell, vertical_pad), axis=0)
+            # Do the same horizontally
+            horizontal_pad = np.zeros((cell.shape[0], int((cell.shape[0] - w) / 2)))
+            cell = np.concatenate((horizontal_pad, cell, horizontal_pad), axis=1)
+        else:
+            # Inverse the operations
+            pad_length = int(w * DIGIT_CENTER_PAD_RATIO)
+            horizontal_pad = np.zeros((h, pad_length))
+            cell = np.concatenate((horizontal_pad, cell, horizontal_pad), axis=1)
+            vertical_pad = np.zeros((int((cell.shape[1] - h) / 2), cell.shape[1]))
+            cell = np.concatenate((vertical_pad, cell, vertical_pad), axis=0)
+        digits[i] = cell
+    utils.plot_images([d for d in digits if d is not None], cols=3, figsize=(6, 6))
+    #utils.plot_images(cells, cols=9, figsize=(4, 4))
 
 if __name__ == '__main__':
+    sudoku_color = 'sudoku21.jpg'
     sudoku_easy = 'sudoku7.jpg'
-    sudoku_rotation_right = 'sudoku2.jpg'
-    sudoku_rotation_left = 'sudoku4.jpg'
+    sudoku_easy2 = 'sudoku22.jpg'
+    sudoku_easy3 = 'sudoku23.jpg'
+    sudoku_right = 'sudoku2.jpg'
+    sudoku_left = 'sudoku4.jpg'
     get_sudoku(get_img_path(sudoku_easy))
