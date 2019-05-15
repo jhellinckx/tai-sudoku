@@ -1,4 +1,5 @@
 import os
+import random
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -12,12 +13,21 @@ RGB_BLUE = (0, 0, 255)
 
 CORNER_RADIUS = 18
 CORNER_COLOR = RGB_GREEN
+
 CENTER_RADIUS = 8
 CENTER_COLOR = RGB_GREEN
+
 CONTOUR_THICKNESS = 6
 CONTOUR_COLOR = RGB_RED
+
 DIGIT_BB_COLOR = RGB_GREEN
 DIGIT_BB_THICKNESS = 2
+
+SOL_DIGIT_FONT = cv2.FONT_HERSHEY_SIMPLEX
+SOL_DIGIT_COLOR = RGB_GREEN
+SOL_DIGIT_THICKNESS = 6
+SOL_DIGIT_FONT_SCALE = 1 # Base font size multiplier
+HERSHEY_SIMPLEX_SCALE = lambda cell_height: SOL_DIGIT_FONT_SCALE * cell_height/50
 
 SUDOKU_DIM = 9
 
@@ -25,7 +35,7 @@ BLUR_KERNEL_SIZE = (9, 9)
 ADAPTIVE_THRESH_WINDOW_SIZE = 11
 ADAPTIVE_THRESH_SUB_MEAN = 2
 
-CELL_BORDER_CROP_RATIO = 0.1
+CELL_BORDER_CROP_RATIO = 0.15
 DIGIT_CC_AREA_MIN_RATIO = 0.06
 
 DIGIT_CENTER_PAD_RATIO = 0.2
@@ -36,17 +46,50 @@ def show_image(img):
     cv2.destroyAllWindows()
 
 def get_sudoku_digits(img_path):
-    img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
+    img_original = cv2.imread(img_path, cv2.IMREAD_COLOR)
+    img = cv2.cvtColor(img_original.copy(), cv2.COLOR_RGB2GRAY)
     img_blurred, img_threshold, img_dilate = pre_process(img)
     #plot_images([img, img_blurred, img_threshold, img_dilate], ['Original', 'Blur', 'Threshold', 'Dilate'])
     corners, img_contours, img_grid_contour, img_corners = get_corners(img_dilate)
     #plot_images([img_dilate, img_contours], ['Preprocessed', 'Contours'], cols=1)
+    # use sudoku9.jpg
+    # bottom_left = corners[-1]
+    # img_corners = cv2.line(img_corners, (0, 0), (1000, 1000), RGB_GREEN, 8)
+    # img_corners = cv2.line(img_corners, bottom_left, (bottom_left[0] + 1500, bottom_left[1] - 1500), RGB_GREEN, 8)
     #plot_images([img_grid_contour, img_corners], ['Largest contour', 'Corners'], cols=1)
     img_raw_grid, img_warp_grid, m = get_grid_roi(img_threshold, *corners)
     #plot_images([img_threshold, img_warp_grid], ['Original', 'With perspective transform'], cols=1)
-    digits, cells, img_centers = get_digits_rois(img_warp_grid)
+    digits, cells, centers, img_centers = get_digits_rois(img_warp_grid)
+    #plot_images([img_warp_grid, img_centers], ['Warped grid', 'Centers of cells'], cols=2, figsize=(15, 15), fontsize=15)
     #plot_images(cells, cols=9)
+    img_solution = write_solution_digits(img_original, img_warp_grid, m, centers, digits)
+    plot_images([img_original, img_solution], figsize=(10, 10), cols=2)
     return digits
+
+def write_solution_digits(image_original, image_warp, m, cell_centers, digits):
+    image_original = image_original.copy()
+    image_warp = cv2.cvtColor(image_warp.copy(), cv2.COLOR_GRAY2RGB)
+    warp_height = image_warp.shape[0]
+    warp_width = image_warp.shape[1]
+    original_height = image_original.shape[0]
+    original_width = image_original.shape[1]
+    image_solution_digits = np.full((warp_height, warp_width, 3), 0).astype('uint8')
+    font_scale = HERSHEY_SIMPLEX_SCALE(warp_height / SUDOKU_DIM)
+    for (cell_center_x, cell_center_y), digit in zip(cell_centers, digits):
+        if digit is None:
+            digit = str(random.randint(1, 9))
+            text_width, text_height = cv2.getTextSize(digit, SOL_DIGIT_FONT, font_scale, SOL_DIGIT_THICKNESS)[0]
+            text_center_x = cell_center_x - int(text_width / 2)
+            text_center_y = cell_center_y + int(text_height / 2)
+            cv2.putText(image_solution_digits, digit, (text_center_x, text_center_y), SOL_DIGIT_FONT, font_scale, SOL_DIGIT_COLOR, SOL_DIGIT_THICKNESS, cv2.LINE_AA)
+    image_solution_digits = cv2.warpPerspective(image_solution_digits, m, (original_width, original_height), flags=cv2.INTER_LINEAR + cv2.WARP_INVERSE_MAP)
+    image_solution_gray = cv2.cvtColor(image_solution_digits, cv2.COLOR_RGB2GRAY)
+    _, mask = cv2.threshold(image_solution_gray, 100, 255, cv2.THRESH_BINARY)
+    mask_inv = cv2.bitwise_not(mask)
+    image_solution_digits = cv2.bitwise_and(image_solution_digits, image_solution_digits, mask=mask)
+    image_solution = cv2.bitwise_and(image_original, image_original, mask=mask_inv)
+    image_solution = cv2.add(image_solution, image_solution_digits)
+    return image_solution
     
 def pre_process(image):
     # Blurring/smoothing to reduce noise
@@ -199,10 +242,10 @@ def get_digits_rois(image_grid):
         digits[i] = cell
     #plot_images([d for d in digits if d is not None], cols=3, figsize=(6, 6))
     #plot_images(cells, cols=9, figsize=(4, 4))
-    return digits, cells, img_centers
+    return digits, cells, centers, img_centers
 
 if __name__ == '__main__':
-    get_sudoku_digits(sudoku_hard)
+    get_sudoku_digits(get_grid_path('sudoku10.jpg'))
 
 
 
