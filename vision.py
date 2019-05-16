@@ -25,7 +25,7 @@ DIGIT_BB_COLOR = RGB_GREEN
 DIGIT_BB_THICKNESS = 2
 
 SOL_DIGIT_FONT = cv2.FONT_HERSHEY_SIMPLEX
-SOL_DIGIT_COLOR = RGB_GREEN
+SOL_DIGIT_COLOR = (0, 200, 66)
 SOL_DIGIT_THICKNESS = 2
 SOL_DIGIT_FONT_SCALE = 1 # Base font size multiplier
 HERSHEY_SIMPLEX_SCALE = lambda cell_height: SOL_DIGIT_FONT_SCALE * cell_height/50
@@ -44,6 +44,8 @@ SUDOKU_GRID_AREA_MIN_RATIO = 0.1
 
 IMAGE_FIXED_WIDTH = 800
 
+
+
 def show_image(img):
     cv2.imshow('image', img)
     cv2.waitKey(0)
@@ -60,7 +62,7 @@ def get_sudoku_digits(img):
     #plot_images([img, img_blurred, img_threshold, img_dilate], ['Original', 'Blur', 'Threshold', 'Dilate'])
     grid_found, corners, img_contours, img_grid_contour, img_corners = get_corners(img_dilate)
     if not grid_found:
-        return (False, img_original, None)
+        return (False, img_original, None, None)
     #print(time.time() - start)
     #plot_images([img_dilate, img_contours], ['Preprocessed', 'Contours'], cols=1)
     # use sudoku9.jpg
@@ -72,15 +74,16 @@ def get_sudoku_digits(img):
     #plot_images([img_threshold, img_warp_grid], ['Original', 'With perspective transform'], cols=1)
     valid_grid, digits, cells, centers, img_centers = get_digits_rois(img_warp_grid)
     if not valid_grid:
-        return (False, img_original, None)
+        return (False, img_original, None, None)
+    return (True, img_original, digits, (img_warp_grid, m, centers))
     #plot_images([img_warp_grid, img_centers], ['Warped grid', 'Centers of cells'], cols=2, figsize=(15, 15), fontsize=15)
     #plot_images(cells, cols=9)
-    img_solution = write_solution_digits(img_original, img_warp_grid, m, centers, digits)
+    # img_solution = write_solution_digits(img_original, img_warp_grid, m, centers, digits)
     #plot_images([img_original, img_solution], figsize=(10, 10), cols=2)
     # return digits
-    return (True, img_original, img_solution)
+    # return (True, img_original, img_solution)
 
-def write_solution_digits(image_original, image_warp, m, cell_centers, digits):
+def write_solution_digits(image_original, digits, image_warp, m, cell_centers):
     image_original = image_original.copy()
     image_warp = cv2.cvtColor(image_warp.copy(), cv2.COLOR_GRAY2RGB)
     warp_height = image_warp.shape[0]
@@ -90,8 +93,7 @@ def write_solution_digits(image_original, image_warp, m, cell_centers, digits):
     image_solution_digits = np.full((warp_height, warp_width, 3), 0).astype('uint8')
     font_scale = HERSHEY_SIMPLEX_SCALE(warp_height / SUDOKU_DIM)
     for (cell_center_x, cell_center_y), digit in zip(cell_centers, digits):
-        if digit is None:
-            digit = str(random.randint(1, 9))
+        if digit is not None:
             text_width, text_height = cv2.getTextSize(digit, SOL_DIGIT_FONT, font_scale, SOL_DIGIT_THICKNESS)[0]
             text_center_x = cell_center_x - int(text_width / 2)
             text_center_y = cell_center_y + int(text_height / 2)

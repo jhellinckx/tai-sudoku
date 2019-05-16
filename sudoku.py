@@ -5,6 +5,8 @@ import numpy as np
 
 import ocr
 import vision
+import solver
+import argparse
 from utils import *
 
 def grid_dataset_accuracy():
@@ -62,10 +64,33 @@ def get_sudoku_grid(img_path, model_filename):
     digit_imgs = vision.get_sudoku_digits(img_path)
     return np.array(ocr.predict_digits(digit_imgs, model_filename)), digit_imgs
 
+
+def main():
+    parser = argparse.ArgumentParser(description='Solve sudoku')
+    parser.add_argument('-v', '--video', type=str)
+    parser.add_argument('-p', '--picture', type=str)
+    args = parser.parse_args()
+    if args.video:
+        print(args.video) # TODO
+    elif args.picture:
+        valid_grid, img_original, digit_imgs, vision_state = vision.get_sudoku_digits_file(args.picture)
+        if not valid_grid:
+            print('Could not detect a sudoku grid in the input picture.')
+            return
+        digits = ocr.predict_digits(digit_imgs, ocr.DEFAULT_MODEL)
+        digits = list(map(str, digits))
+        solved, solution_digits = solver.solve_sudoku(''.join(digits))
+        if not solved:
+            print('Could not solve the sudoku.')
+        solution_digits = list(map(lambda z: z[0] if z[0] != z[1] else None, zip(solution_digits, digits)))
+        img_solution = vision.write_solution_digits(img_original, solution_digits, *vision_state)
+        plot_images([img_original, img_solution], figsize=(10, 10), cols=2)
+
+
 if __name__ == '__main__':
-    cap = cv2.VideoCapture(0)
-    t = time.time()
-    i = 0
+    # cap = cv2.VideoCapture(0)
+    # t = time.time()
+    # i = 0
     # while(True):
     #     # Capture frame-by-frame
     #     ret, frame = cap.read()
@@ -91,5 +116,6 @@ if __name__ == '__main__':
     # # When everything done, release the capture
     # cap.release()
     # cv2.destroyAllWindows()
-    grid_dataset_accuracy()
+    # grid_dataset_accuracy()
+    main()
     
