@@ -36,6 +36,8 @@ sudoku_perspective = get_grid_path('sudoku10.jpg')
 
 def resize_ar(image, width):
     img_width, img_height = image.shape[1], image.shape[0]
+    if img_width == width:
+        return image
     scale = width / img_width
     new_height = int(img_height * scale)
     new_width = int(img_width * scale)

@@ -1,12 +1,13 @@
 import os
 import time
+import argparse
 
 import numpy as np
+import cv2
 
 import ocr
 import vision
 import solver
-import argparse
 from utils import *
 
 def grid_dataset_accuracy():
@@ -64,58 +65,85 @@ def get_sudoku_grid(img_path, model_filename):
     digit_imgs = vision.get_sudoku_digits(img_path)
     return np.array(ocr.predict_digits(digit_imgs, model_filename)), digit_imgs
 
+def sudoku(picture, is_file=False, prev_solution_digits=None):
+    start = time.time()
+    valid_grid, img_original, digit_imgs, bb_grid, vision_state = vision.get_sudoku_digits(picture, is_file)
+    #print(f'Detect digits time: {time.time() - start}')
+    if not valid_grid:
+        return (False, None, img_original, None, None)
+    # digits = ocr.predict_digits(digit_imgs, ocr.DEFAULT_MODEL)
+    if prev_solution_digits is None:
+        digits = ocr.predict_digits(digit_imgs)
+        #print(f'OCR time: {time.time() - start}')
+        digits = list(map(str, digits))
+        solved, solution_digits = solver.solve_sudoku(''.join(digits))
+        #print(f'Solve time: {time.time() - start}')
+        if not solved:
+            #print('Not solved')
+            return (False, None, img_original, None, None)
+        solution_digits = list(map(lambda z: z[0] if z[0] != z[1] else None, zip(solution_digits, digits)))
+        print('=== SOLVED ===')
+    else:
+        solution_digits = prev_solution_digits
+    img_solution = vision.write_solution_digits(img_original, solution_digits, *vision_state)
+    print(f'Write digits time: {time.time() - start}')
+    return (True, solution_digits, img_original, img_solution, bb_grid)
+
+def sudoku_picture(picture_path):
+    solved, _, img_original, img_solution, _ = sudoku(picture_path, True)
+    if not solved:
+        print('Could not detect/solve a sudoku in the given picture.')
+        return
+    plot_images([img_original, img_solution], figsize=(10, 10), cols=2)
+
+def sudoku_video():
+    cap = cv2.VideoCapture(0)
+    t = time.time()
+    i = 0
+    tracker = cv2.TrackerCSRT_create()
+    bb_grid = None
+    solution_digits = None
+    while(True):
+        ret, frame = cap.read()
+        if bb_grid is not None:
+            frame = resize_ar(frame, vision.IMAGE_FIXED_WIDTH)
+            success, box = tracker.update(frame)
+            print(success)
+            if not success:
+                bb_grid = None
+                solution_digits = None
+        solved, solution_digits, img_original, img_solution, bb_grid = sudoku(frame, False, solution_digits)
+        if bb_grid is not None:
+            tracker.init(frame, bb_grid)
+        if solved:
+            cv2.imshow('frame',img_solution)
+        else:
+            cv2.imshow('frame', img_original)
+        i += 1
+        if (time.time() - t) >= 1:
+            t = time.time()
+            print(f'fps: {i}')
+            i = 0
+            
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    # When everything done, release the capture
+    cap.release()
+    cv2.destroyAllWindows()
 
 def main():
     parser = argparse.ArgumentParser(description='Solve sudoku')
-    parser.add_argument('-v', '--video', type=str)
+    parser.add_argument('-v', '--video', action='store_true')
     parser.add_argument('-p', '--picture', type=str)
     args = parser.parse_args()
     if args.video:
-        print(args.video) # TODO
+        sudoku_video()
     elif args.picture:
-        valid_grid, img_original, digit_imgs, vision_state = vision.get_sudoku_digits_file(args.picture)
-        if not valid_grid:
-            print('Could not detect a sudoku grid in the input picture.')
-            return
-        digits = ocr.predict_digits(digit_imgs, ocr.DEFAULT_MODEL)
-        digits = list(map(str, digits))
-        solved, solution_digits = solver.solve_sudoku(''.join(digits))
-        if not solved:
-            print('Could not solve the sudoku.')
-        solution_digits = list(map(lambda z: z[0] if z[0] != z[1] else None, zip(solution_digits, digits)))
-        img_solution = vision.write_solution_digits(img_original, solution_digits, *vision_state)
-        plot_images([img_original, img_solution], figsize=(10, 10), cols=2)
+        sudoku_picture(args.picture)
 
 
 if __name__ == '__main__':
-    # cap = cv2.VideoCapture(0)
-    # t = time.time()
-    # i = 0
-    # while(True):
-    #     # Capture frame-by-frame
-    #     ret, frame = cap.read()
-
-    #     # Our operations on the frame come here
-    #     #gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    #     found, img, img_solution = vision.get_sudoku_digits(frame)
-
-    #     # Display the resulting frame
-    #     if found:
-    #         cv2.imshow('frame',img_solution)
-    #     else:
-    #         cv2.imshow('frame', img)
-    #     i += 1
-    #     if (time.time() - t) >= 1:
-    #         t = time.time()
-    #         print(f'fps: {i}')
-    #         i = 0
-            
-    #     if cv2.waitKey(1) & 0xFF == ord('q'):
-    #         break
-
-    # # When everything done, release the capture
-    # cap.release()
-    # cv2.destroyAllWindows()
-    # grid_dataset_accuracy()
     main()
+    #grid_dataset_accuracy()
     

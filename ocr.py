@@ -32,6 +32,9 @@ simple_model = 'base_25x9.h5'
 conv_model = 'conv.h5'
 
 DEFAULT_MODEL = conv_model
+DEF_MOD = load_model(DEFAULT_MODEL)
+
+OCR_CONFIDENCE_THRESH = 0.9
 
 def build_simple_ocr_model():
     model = Sequential()
@@ -68,9 +71,10 @@ def train_ocr_model(model, save_filename=DEFAULT_MODEL, epochs=50):
               epochs=epochs, batch_size=200, verbose=1)
     model.save(save_filename)
 
-def predict_digits(images, model_filename=DEFAULT_MODEL):
+# def predict_digits(images, model_filename=DEFAULT_MODEL):
+def predict_digits(images, model=DEF_MOD):
     preds = []
-    model = load_model(model_filename)
+    # model = load_model(model_filename)
     for image in images:
         if image is None:
             preds.append(0)
@@ -83,7 +87,11 @@ def predict_digit(image, model):
                        interpolation=predict_interpolation)
     image = model_reshape(image, model)
     pred = model.predict(np.array([image]), batch_size=1)[0]
-    return np.argmax(pred) + 1
+    idx = np.argmax(pred)
+    #print(f'{idx+1} {pred[idx]}')
+    if pred[idx] < OCR_CONFIDENCE_THRESH:
+        return 0
+    return idx + 1
 
 def display_reshape(X):
     return X.reshape(X.shape[0], img_rows, img_cols)

@@ -44,25 +44,22 @@ SUDOKU_GRID_AREA_MIN_RATIO = 0.1
 
 IMAGE_FIXED_WIDTH = 800
 
-
-
 def show_image(img):
     cv2.imshow('image', img)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
-def get_sudoku_digits_file(img_path):
-    return get_sudoku_digits(cv2.imread(img_path, cv2.IMREAD_COLOR))
-
-def get_sudoku_digits(img):
+def get_sudoku_digits(img, is_file=False):
+    if is_file:
+        img = cv2.imread(img, cv2.IMREAD_COLOR)
     img_original = resize_ar(img, IMAGE_FIXED_WIDTH)
     #start = time.time()
     img = cv2.cvtColor(img_original.copy(), cv2.COLOR_RGB2GRAY)
     img_blurred, img_threshold, img_dilate = pre_process(img)
     #plot_images([img, img_blurred, img_threshold, img_dilate], ['Original', 'Blur', 'Threshold', 'Dilate'])
-    grid_found, corners, img_contours, img_grid_contour, img_corners = get_corners(img_dilate)
+    grid_found, corners, img_contours, img_grid_contour, img_corners, bb_grid = get_corners(img_dilate)
     if not grid_found:
-        return (False, img_original, None, None)
+        return (False, img_original, None, None, None)
     #print(time.time() - start)
     #plot_images([img_dilate, img_contours], ['Preprocessed', 'Contours'], cols=1)
     # use sudoku9.jpg
@@ -74,8 +71,8 @@ def get_sudoku_digits(img):
     #plot_images([img_threshold, img_warp_grid], ['Original', 'With perspective transform'], cols=1)
     valid_grid, digits, cells, centers, img_centers = get_digits_rois(img_warp_grid)
     if not valid_grid:
-        return (False, img_original, None, None)
-    return (True, img_original, digits, (img_warp_grid, m, centers))
+        return (False, img_original, None, None, None)
+    return (True, img_original, digits, bb_grid, (img_warp_grid, m, centers))
     #plot_images([img_warp_grid, img_centers], ['Warped grid', 'Centers of cells'], cols=2, figsize=(15, 15), fontsize=15)
     #plot_images(cells, cols=9)
     # img_solution = write_solution_digits(img_original, img_warp_grid, m, centers, digits)
@@ -140,11 +137,14 @@ def get_corners(image):
     # We assume the sudoku grid is the contour with the largest area, so fetch the first one
     grid_contour = contours[0]
 
-    grid_found = cv2.contourArea(grid_contour) > (image.shape[0] * image.shape[1] * SUDOKU_GRID_AREA_MIN_RATIO)
-
-    # We want to draw the contours in RGB, but our image is encoded as grayscale
+    # We want to draw the bounding box and contours in RGB, but our image is encoded as grayscale
     # So, re-encode it as RGB
     image = cv2.cvtColor(image.copy(), cv2.COLOR_GRAY2RGB)
+    x, y, w, h = cv2.boundingRect(grid_contour)
+    bb_grid = cv2.rectangle(image.copy(), (x, y), (x + w, y + h), RGB_GREEN, CONTOUR_THICKNESS)
+    #plot_images([image, bb_grid], figsize=(10, 10), cols=2)
+
+    grid_found = cv2.contourArea(grid_contour) > (image.shape[0] * image.shape[1] * SUDOKU_GRID_AREA_MIN_RATIO)
     img_contours = cv2.drawContours(image.copy(), contours, -1, CONTOUR_COLOR, CONTOUR_THICKNESS)
     img_grid_contour = cv2.drawContours(image.copy(), [grid_contour], -1, CONTOUR_COLOR, CONTOUR_THICKNESS)
 
@@ -166,7 +166,7 @@ def get_corners(image):
     for corner in corners:
         img_corners = cv2.circle(img_corners, corner, CORNER_RADIUS, CORNER_COLOR, cv2.FILLED)
 
-    return grid_found, corners, img_contours, img_grid_contour, img_corners
+    return grid_found, corners, img_contours, img_grid_contour, img_corners, (x, y, w, h)
 
     
 def get_grid_roi(image, top_left, top_right, bottom_right, bottom_left):
@@ -265,7 +265,7 @@ def get_digits_rois(image_grid):
     return valid_grid, digits, cells, centers, img_centers
 
 if __name__ == '__main__':
-    get_sudoku_digits(get_grid_path('sudoku56.jpg'))
+    get_sudoku_digits(sudoku_perspective, True)
 
 
 
