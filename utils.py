@@ -31,6 +31,16 @@ sudoku_easy3 = get_grid_path('sudoku23.jpg')
 sudoku_right = get_grid_path('sudoku2.jpg')
 sudoku_left = get_grid_path('sudoku4.jpg')
 sudoku_hard = get_grid_path('sudoku19.jpg')
+sudoku_small = get_grid_path('sudoku36.jpg')
+sudoku_perspective = get_grid_path('sudoku10.jpg')
+
+def resize_ar(image, width):
+    img_width, img_height = image.shape[1], image.shape[0]
+    scale = width / img_width
+    new_height = int(img_height * scale)
+    new_width = int(img_width * scale)
+    upscale = new_width > img_width
+    return cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_LINEAR if upscale else cv2.INTER_AREA)
 
 def plot_images(images, titles=None, cols=2, figsize=(10, 10), color='gray', fontsize=10, hspace=0.2, wspace=0.2):
     if titles is None:

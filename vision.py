@@ -1,5 +1,6 @@
 import os
 import random
+import time
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -25,32 +26,42 @@ DIGIT_BB_THICKNESS = 2
 
 SOL_DIGIT_FONT = cv2.FONT_HERSHEY_SIMPLEX
 SOL_DIGIT_COLOR = RGB_GREEN
-SOL_DIGIT_THICKNESS = 6
+SOL_DIGIT_THICKNESS = 2
 SOL_DIGIT_FONT_SCALE = 1 # Base font size multiplier
 HERSHEY_SIMPLEX_SCALE = lambda cell_height: SOL_DIGIT_FONT_SCALE * cell_height/50
 
 SUDOKU_DIM = 9
+SUDOKU_MIN_DIGITS_NUM = 17
 
 BLUR_KERNEL_SIZE = (9, 9)
 ADAPTIVE_THRESH_WINDOW_SIZE = 11
 ADAPTIVE_THRESH_SUB_MEAN = 2
 
+DIGIT_CENTER_PAD_RATIO = 0.2
 CELL_BORDER_CROP_RATIO = 0.15
 DIGIT_CC_AREA_MIN_RATIO = 0.06
+SUDOKU_GRID_AREA_MIN_RATIO = 0.1
 
-DIGIT_CENTER_PAD_RATIO = 0.2
+IMAGE_FIXED_WIDTH = 800
 
 def show_image(img):
     cv2.imshow('image', img)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
-def get_sudoku_digits(img_path):
-    img_original = cv2.imread(img_path, cv2.IMREAD_COLOR)
+def get_sudoku_digits_file(img_path):
+    return get_sudoku_digits(cv2.imread(img_path, cv2.IMREAD_COLOR))
+
+def get_sudoku_digits(img):
+    img_original = resize_ar(img, IMAGE_FIXED_WIDTH)
+    #start = time.time()
     img = cv2.cvtColor(img_original.copy(), cv2.COLOR_RGB2GRAY)
     img_blurred, img_threshold, img_dilate = pre_process(img)
     #plot_images([img, img_blurred, img_threshold, img_dilate], ['Original', 'Blur', 'Threshold', 'Dilate'])
-    corners, img_contours, img_grid_contour, img_corners = get_corners(img_dilate)
+    grid_found, corners, img_contours, img_grid_contour, img_corners = get_corners(img_dilate)
+    if not grid_found:
+        return (False, img_original, None)
+    #print(time.time() - start)
     #plot_images([img_dilate, img_contours], ['Preprocessed', 'Contours'], cols=1)
     # use sudoku9.jpg
     # bottom_left = corners[-1]
@@ -59,12 +70,15 @@ def get_sudoku_digits(img_path):
     #plot_images([img_grid_contour, img_corners], ['Largest contour', 'Corners'], cols=1)
     img_raw_grid, img_warp_grid, m = get_grid_roi(img_threshold, *corners)
     #plot_images([img_threshold, img_warp_grid], ['Original', 'With perspective transform'], cols=1)
-    digits, cells, centers, img_centers = get_digits_rois(img_warp_grid)
+    valid_grid, digits, cells, centers, img_centers = get_digits_rois(img_warp_grid)
+    if not valid_grid:
+        return (False, img_original, None)
     #plot_images([img_warp_grid, img_centers], ['Warped grid', 'Centers of cells'], cols=2, figsize=(15, 15), fontsize=15)
     #plot_images(cells, cols=9)
     img_solution = write_solution_digits(img_original, img_warp_grid, m, centers, digits)
-    plot_images([img_original, img_solution], figsize=(10, 10), cols=2)
-    return digits
+    #plot_images([img_original, img_solution], figsize=(10, 10), cols=2)
+    # return digits
+    return (True, img_original, img_solution)
 
 def write_solution_digits(image_original, image_warp, m, cell_centers, digits):
     image_original = image_original.copy()
@@ -124,6 +138,8 @@ def get_corners(image):
     # We assume the sudoku grid is the contour with the largest area, so fetch the first one
     grid_contour = contours[0]
 
+    grid_found = cv2.contourArea(grid_contour) > (image.shape[0] * image.shape[1] * SUDOKU_GRID_AREA_MIN_RATIO)
+
     # We want to draw the contours in RGB, but our image is encoded as grayscale
     # So, re-encode it as RGB
     image = cv2.cvtColor(image.copy(), cv2.COLOR_GRAY2RGB)
@@ -148,7 +164,7 @@ def get_corners(image):
     for corner in corners:
         img_corners = cv2.circle(img_corners, corner, CORNER_RADIUS, CORNER_COLOR, cv2.FILLED)
 
-    return corners, img_contours, img_grid_contour, img_corners
+    return grid_found, corners, img_contours, img_grid_contour, img_corners
 
     
 def get_grid_roi(image, top_left, top_right, bottom_right, bottom_left):
@@ -240,12 +256,14 @@ def get_digits_rois(image_grid):
             vertical_pad = np.zeros((int((cell.shape[1] - h) / 2), cell.shape[1]))
             cell = np.concatenate((vertical_pad, cell, vertical_pad), axis=0)
         digits[i] = cell
+    num_recognized_digits = len(list(filter(lambda x: x is not None, digits)))
+    valid_grid = num_recognized_digits >= SUDOKU_MIN_DIGITS_NUM
     #plot_images([d for d in digits if d is not None], cols=3, figsize=(6, 6))
     #plot_images(cells, cols=9, figsize=(4, 4))
-    return digits, cells, centers, img_centers
+    return valid_grid, digits, cells, centers, img_centers
 
 if __name__ == '__main__':
-    get_sudoku_digits(get_grid_path('sudoku10.jpg'))
+    get_sudoku_digits(get_grid_path('sudoku56.jpg'))
 
 
 
