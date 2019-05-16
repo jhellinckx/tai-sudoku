@@ -40,9 +40,9 @@ ADAPTIVE_THRESH_SUB_MEAN = 2
 DIGIT_CENTER_PAD_RATIO = 0.2
 CELL_BORDER_CROP_RATIO = 0.15
 DIGIT_CC_AREA_MIN_RATIO = 0.06
-SUDOKU_GRID_AREA_MIN_RATIO = 0.1
+SUDOKU_GRID_AREA_MIN_RATIO = 0.05
 
-IMAGE_FIXED_WIDTH = 800
+IMAGE_FIXED_WIDTH = 1000
 
 def show_image(img):
     cv2.imshow('image', img)
@@ -53,13 +53,14 @@ def get_sudoku_digits(img, is_file=False):
     if is_file:
         img = cv2.imread(img, cv2.IMREAD_COLOR)
     img_original = resize_ar(img, IMAGE_FIXED_WIDTH)
+    img_original = img_original.copy()
     #start = time.time()
     img = cv2.cvtColor(img_original.copy(), cv2.COLOR_RGB2GRAY)
     img_blurred, img_threshold, img_dilate = pre_process(img)
     #plot_images([img, img_blurred, img_threshold, img_dilate], ['Original', 'Blur', 'Threshold', 'Dilate'])
-    grid_found, corners, img_contours, img_grid_contour, img_corners, bb_grid = get_corners(img_dilate)
+    grid_found, corners, img_contours, img_grid_contour, img_corners, bb_grid = get_corners(img_original, img_dilate)
     if not grid_found:
-        return (False, img_original, None, None, None)
+        return (False, img_original, None, None, None, None)
     #print(time.time() - start)
     #plot_images([img_dilate, img_contours], ['Preprocessed', 'Contours'], cols=1)
     # use sudoku9.jpg
@@ -69,10 +70,10 @@ def get_sudoku_digits(img, is_file=False):
     #plot_images([img_grid_contour, img_corners], ['Largest contour', 'Corners'], cols=1)
     img_raw_grid, img_warp_grid, m = get_grid_roi(img_threshold, *corners)
     #plot_images([img_threshold, img_warp_grid], ['Original', 'With perspective transform'], cols=1)
-    valid_grid, digits, cells, centers, img_centers = get_digits_rois(img_warp_grid)
+    valid_grid, digits, cells, centers, img_centers, bb_cells = get_digits_rois(img_warp_grid)
     if not valid_grid:
-        return (False, img_original, None, None, None)
-    return (True, img_original, digits, bb_grid, (img_warp_grid, m, centers))
+        return (False, img_original, None, None, None (img_grid_contour, img_corners))
+    return (True, img_original, digits, bb_grid, (img_warp_grid, m, centers), (img_grid_contour, img_corners))
     #plot_images([img_warp_grid, img_centers], ['Warped grid', 'Centers of cells'], cols=2, figsize=(15, 15), fontsize=15)
     #plot_images(cells, cols=9)
     # img_solution = write_solution_digits(img_original, img_warp_grid, m, centers, digits)
@@ -127,7 +128,7 @@ def pre_process(image):
     img_dilate = cv2.dilate(img_threshold, kernel)
     return img_blurred, img_threshold, img_dilate
 
-def get_corners(image):
+def get_corners(img_original, image):
     # Find all the contours in the image (i.e. connected components)
     contours, _ = cv2.findContours(image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
@@ -146,7 +147,7 @@ def get_corners(image):
 
     grid_found = cv2.contourArea(grid_contour) > (image.shape[0] * image.shape[1] * SUDOKU_GRID_AREA_MIN_RATIO)
     img_contours = cv2.drawContours(image.copy(), contours, -1, CONTOUR_COLOR, CONTOUR_THICKNESS)
-    img_grid_contour = cv2.drawContours(image.copy(), [grid_contour], -1, CONTOUR_COLOR, CONTOUR_THICKNESS)
+    img_grid_contour = cv2.drawContours(img_original.copy(), [grid_contour], -1, CONTOUR_COLOR, CONTOUR_THICKNESS)
 
     # We now need to find the 4 corners of the sudoku grid
     # The findContours function represent its contours by a succession of (x, y) points
@@ -262,7 +263,7 @@ def get_digits_rois(image_grid):
     valid_grid = num_recognized_digits >= SUDOKU_MIN_DIGITS_NUM
     #plot_images([d for d in digits if d is not None], cols=3, figsize=(6, 6))
     #plot_images(cells, cols=9, figsize=(4, 4))
-    return valid_grid, digits, cells, centers, img_centers
+    return valid_grid, digits, cells, centers, img_centers, bb_cells
 
 if __name__ == '__main__':
     get_sudoku_digits(sudoku_perspective, True)

@@ -67,10 +67,10 @@ def get_sudoku_grid(img_path, model_filename):
 
 def sudoku(picture, is_file=False, prev_solution_digits=None):
     start = time.time()
-    valid_grid, img_original, digit_imgs, bb_grid, vision_state = vision.get_sudoku_digits(picture, is_file)
+    valid_grid, img_original, digit_imgs, bb_grid, vision_state, imgs_vision = vision.get_sudoku_digits(picture, is_file)
     #print(f'Detect digits time: {time.time() - start}')
     if not valid_grid:
-        return (False, None, img_original, None, None)
+        return (False, None, img_original, None, None, None)
     # digits = ocr.predict_digits(digit_imgs, ocr.DEFAULT_MODEL)
     if prev_solution_digits is None:
         digits = ocr.predict_digits(digit_imgs)
@@ -80,17 +80,17 @@ def sudoku(picture, is_file=False, prev_solution_digits=None):
         #print(f'Solve time: {time.time() - start}')
         if not solved:
             #print('Not solved')
-            return (False, None, img_original, None, None)
+            return (False, None, img_original, None, None, imgs_vision)
         solution_digits = list(map(lambda z: z[0] if z[0] != z[1] else None, zip(solution_digits, digits)))
         print('=== SOLVED ===')
     else:
         solution_digits = prev_solution_digits
     img_solution = vision.write_solution_digits(img_original, solution_digits, *vision_state)
-    print(f'Write digits time: {time.time() - start}')
-    return (True, solution_digits, img_original, img_solution, bb_grid)
+    #print(f'Write digits time: {time.time() - start}')
+    return (True, solution_digits, img_original, img_solution, bb_grid, imgs_vision)
 
 def sudoku_picture(picture_path):
-    solved, _, img_original, img_solution, _ = sudoku(picture_path, True)
+    solved, _, img_original, img_solution, _, _ = sudoku(picture_path, True)
     if not solved:
         print('Could not detect/solve a sudoku in the given picture.')
         return
@@ -100,29 +100,43 @@ def sudoku_video():
     cap = cv2.VideoCapture(0)
     t = time.time()
     i = 0
-    tracker = cv2.TrackerCSRT_create()
+    tracker = None
     bb_grid = None
     solution_digits = None
+    tracking = False
     while(True):
         ret, frame = cap.read()
-        if bb_grid is not None:
-            frame = resize_ar(frame, vision.IMAGE_FIXED_WIDTH)
+        frame = resize_ar(frame, vision.IMAGE_FIXED_WIDTH)
+        if tracking:
             success, box = tracker.update(frame)
             print(success)
             if not success:
                 bb_grid = None
                 solution_digits = None
-        solved, solution_digits, img_original, img_solution, bb_grid = sudoku(frame, False, solution_digits)
-        if bb_grid is not None:
+                tracking = False
+        
+        solved, solution_digits, img_original, img_solution, bb_grid, imgs_vision = sudoku(frame, False, solution_digits)
+
+        if not tracking and bb_grid is not None:
+            tracker = cv2.TrackerKCF_create()
             tracker.init(frame, bb_grid)
+            tracking = True
         if solved:
             cv2.imshow('frame',img_solution)
         else:
             cv2.imshow('frame', img_original)
+        if imgs_vision is not None:
+            (img_grid_contour, img_corners) = imgs_vision
+            cv2.imshow('contour', img_grid_contour)
+            #cv2.imshow('corners', img_corners)
+            #(True, img_original, digits, bb_grid, (img_warp_grid, m, centers), (img_grid_contour, img_corners))
+        else:
+            cv2.imshow('contour', img_original)
+            #cv2.imshow('corners', img_original)
         i += 1
         if (time.time() - t) >= 1:
             t = time.time()
-            print(f'fps: {i}')
+            #print(f'fps: {i}')
             i = 0
             
         if cv2.waitKey(1) & 0xFF == ord('q'):
