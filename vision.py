@@ -39,7 +39,7 @@ ADAPTIVE_THRESH_SUB_MEAN = 2
 
 DIGIT_CENTER_PAD_RATIO = 0.2
 CELL_BORDER_CROP_RATIO = 0.15
-DIGIT_CC_AREA_MIN_RATIO = 0.06
+DIGIT_CC_AREA_MIN_RATIO = 0.1
 SUDOKU_GRID_AREA_MIN_RATIO = 0.05
 
 IMAGE_FIXED_WIDTH = 1000
@@ -58,9 +58,9 @@ def get_sudoku_digits(img, is_file=False):
     img = cv2.cvtColor(img_original.copy(), cv2.COLOR_RGB2GRAY)
     img_blurred, img_threshold, img_dilate = pre_process(img)
     #plot_images([img, img_blurred, img_threshold, img_dilate], ['Original', 'Blur', 'Threshold', 'Dilate'])
-    grid_found, corners, img_contours, img_grid_contour, img_corners, bb_grid = get_corners(img_original, img_dilate)
+    grid_found, corners, img_contours, img_grid_contour, img_corners, img_vision, bb_grid = get_corners(img_original, img_dilate)
     if not grid_found:
-        return (False, img_original, None, None, None, None)
+        return (False, img_original, None, None, None, None, img_threshold, img_contours)
     #print(time.time() - start)
     #plot_images([img_dilate, img_contours], ['Preprocessed', 'Contours'], cols=1)
     # use sudoku9.jpg
@@ -70,16 +70,27 @@ def get_sudoku_digits(img, is_file=False):
     #plot_images([img_grid_contour, img_corners], ['Largest contour', 'Corners'], cols=1)
     img_raw_grid, img_warp_grid, m = get_grid_roi(img_threshold, *corners)
     #plot_images([img_threshold, img_warp_grid], ['Original', 'With perspective transform'], cols=1)
-    valid_grid, digits, cells, centers, img_centers, bb_cells = get_digits_rois(img_warp_grid)
+    valid_grid, digits, cells, centers, img_centers, bb_cells, img_vision = get_digits_rois(img_warp_grid, img_vision, m)
     if not valid_grid:
-        return (False, img_original, None, None, None (img_grid_contour, img_corners))
-    return (True, img_original, digits, bb_grid, (img_warp_grid, m, centers), (img_grid_contour, img_corners))
+        return (False, img_original, None, None, None, img_vision, img_threshold, img_contours)
+    return (True, img_original, digits, bb_grid, (img_warp_grid, m, centers), img_vision, img_threshold, img_contours)
     #plot_images([img_warp_grid, img_centers], ['Warped grid', 'Centers of cells'], cols=2, figsize=(15, 15), fontsize=15)
     #plot_images(cells, cols=9)
     # img_solution = write_solution_digits(img_original, img_warp_grid, m, centers, digits)
     #plot_images([img_original, img_solution], figsize=(10, 10), cols=2)
     # return digits
     # return (True, img_original, img_solution)
+
+def warp_draw_image(img_bg, img_fg, m, threshold=100):
+    bg_width, bg_height = img_bg.shape[1], img_bg.shape[0]
+    img_fg_warp = cv2.warpPerspective(img_fg, m, (bg_width, bg_height), flags=cv2.INTER_LINEAR + cv2.WARP_INVERSE_MAP)
+    img_fg_warp_gray = cv2.cvtColor(img_fg_warp, cv2.COLOR_RGB2GRAY)
+    _, mask = cv2.threshold(img_fg_warp_gray, threshold, 255, cv2.THRESH_BINARY)
+    mask_inv = cv2.bitwise_not(mask)
+    img_fg_warp = cv2.bitwise_and(img_fg_warp, img_fg_warp, mask=mask)
+    img_bg = cv2.bitwise_and(img_bg, img_bg, mask=mask_inv)
+    img_drawn = cv2.add(img_bg, img_fg_warp)
+    return img_drawn
 
 def write_solution_digits(image_original, digits, image_warp, m, cell_centers):
     image_original = image_original.copy()
@@ -96,14 +107,8 @@ def write_solution_digits(image_original, digits, image_warp, m, cell_centers):
             text_center_x = cell_center_x - int(text_width / 2)
             text_center_y = cell_center_y + int(text_height / 2)
             cv2.putText(image_solution_digits, digit, (text_center_x, text_center_y), SOL_DIGIT_FONT, font_scale, SOL_DIGIT_COLOR, SOL_DIGIT_THICKNESS, cv2.LINE_AA)
-    image_solution_digits = cv2.warpPerspective(image_solution_digits, m, (original_width, original_height), flags=cv2.INTER_LINEAR + cv2.WARP_INVERSE_MAP)
-    image_solution_gray = cv2.cvtColor(image_solution_digits, cv2.COLOR_RGB2GRAY)
-    _, mask = cv2.threshold(image_solution_gray, 100, 255, cv2.THRESH_BINARY)
-    mask_inv = cv2.bitwise_not(mask)
-    image_solution_digits = cv2.bitwise_and(image_solution_digits, image_solution_digits, mask=mask)
-    image_solution = cv2.bitwise_and(image_original, image_original, mask=mask_inv)
-    image_solution = cv2.add(image_solution, image_solution_digits)
-    return image_solution
+    
+    return warp_draw_image(image_original, image_solution_digits, m, 100)
     
 def pre_process(image):
     # Blurring/smoothing to reduce noise
@@ -135,6 +140,8 @@ def get_corners(img_original, image):
     # Sort by area, descending
     contours = sorted(contours, key=cv2.contourArea, reverse=True)
     
+    if not contours:
+        return (False, None, None, None, None, None, None)
     # We assume the sudoku grid is the contour with the largest area, so fetch the first one
     grid_contour = contours[0]
 
@@ -149,6 +156,7 @@ def get_corners(img_original, image):
     img_contours = cv2.drawContours(image.copy(), contours, -1, CONTOUR_COLOR, CONTOUR_THICKNESS)
     img_grid_contour = cv2.drawContours(img_original.copy(), [grid_contour], -1, CONTOUR_COLOR, CONTOUR_THICKNESS)
 
+    img_vision = img_grid_contour.copy()
     # We now need to find the 4 corners of the sudoku grid
     # The findContours function represent its contours by a succession of (x, y) points
     # So we can use some heuristics to find the 4 corners of the grid
@@ -166,8 +174,9 @@ def get_corners(img_original, image):
     img_corners = image.copy()
     for corner in corners:
         img_corners = cv2.circle(img_corners, corner, CORNER_RADIUS, CORNER_COLOR, cv2.FILLED)
+        img_vision = cv2.circle(img_vision, corner, CORNER_RADIUS, CORNER_COLOR, cv2.FILLED)
 
-    return grid_found, corners, img_contours, img_grid_contour, img_corners, (x, y, w, h)
+    return grid_found, corners, img_contours, img_grid_contour, img_corners, img_vision, (x, y, w, h)
 
     
 def get_grid_roi(image, top_left, top_right, bottom_right, bottom_left):
@@ -199,7 +208,7 @@ def get_grid_roi(image, top_left, top_right, bottom_right, bottom_left):
     img_warp_grid = cv2.warpPerspective(image, transform_matrix, (int(edge_max), int(edge_max)))
     return img_raw_grid, img_warp_grid, transform_matrix
 
-def get_digits_rois(image_grid):
+def get_digits_rois(image_grid, img_vision, m):
     # Get the length of the grid square
     side_length = image_grid.shape[0]
     # Sudoku grids are 9x9 matrices, so start off by finding the center of each cell
@@ -224,6 +233,7 @@ def get_digits_rois(image_grid):
     # As for the grid contour detection, find the biggest connected component, assume it is the digit in the cell
     digits = [None for i in range(len(cells))]
     bb_cells = cells
+    bb_digits = [None for i in range(len(cells))]
     for i, cell in enumerate(cells):
         cell_area = cell.shape[0]**2
         contours, h = cv2.findContours(cell, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
@@ -237,6 +247,7 @@ def get_digits_rois(image_grid):
         # Create an image that is centered around the digit
         # First find the bounding box of the contour
         x, y, w, h = cv2.boundingRect(digit_contour)
+        bb_digits[i] = (x, y, w, h)
         # Create an image of the cell with the digit bounding box
         bb_cell = cv2.cvtColor(cell.copy(), cv2.COLOR_GRAY2RGB)
         bb_cells[i] = cv2.rectangle(bb_cell, (x, y), (x + w, y + h), DIGIT_BB_COLOR, DIGIT_BB_THICKNESS)
@@ -261,9 +272,18 @@ def get_digits_rois(image_grid):
         digits[i] = cell
     num_recognized_digits = len(list(filter(lambda x: x is not None, digits)))
     valid_grid = num_recognized_digits >= SUDOKU_MIN_DIGITS_NUM
+    # Add the digits bounding boxes in the vision image
+    # Create the image containing only the bounding boxes
+    img_vision_bbs = np.full((side_length, side_length, 3), 0).astype('uint8')
+    for bb_digit, (cx, cy) in zip(bb_digits, centers):
+        if bb_digit is not None:
+            (x, y, w, h) = bb_digit
+            x, y = x + cx - pad + int(cell_pad / 2), y + cy - pad + int(cell_pad / 2)
+            img_vision_bbs = cv2.rectangle(img_vision_bbs, (x, y), (x + w, y + h), DIGIT_BB_COLOR, DIGIT_BB_THICKNESS)
+    img_vision = warp_draw_image(img_vision, img_vision_bbs, m, 100)
     #plot_images([d for d in digits if d is not None], cols=3, figsize=(6, 6))
     #plot_images(cells, cols=9, figsize=(4, 4))
-    return valid_grid, digits, cells, centers, img_centers, bb_cells
+    return valid_grid, digits, cells, centers, img_centers, bb_cells, img_vision
 
 if __name__ == '__main__':
     get_sudoku_digits(sudoku_perspective, True)
